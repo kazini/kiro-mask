@@ -25,7 +25,7 @@ except ImportError:
 # ============================================================
 def check_dependencies():
     """Check and install/upgrade dependencies from requirements.txt"""
-    requirements_file = Path(__file__).parent / "_kiropipe" / "engine" / "requirements.txt"
+    requirements_file = Path(__file__).parent / "engine" / "requirements.txt"
     
     if not requirements_file.exists():
         print(f"{Fore.YELLOW} WARNING: requirements.txt not found at {requirements_file}{Style.RESET_ALL}")
@@ -174,6 +174,7 @@ Configuration: Edit _kiropipe/kiropipe_config.yaml
 # ============================================================
 APP_TITLE = 'Kiro Pipe — Console'  # Window/process title
 DEFAULT_PORT = 29974
+USE_NODE_PROXY = False  # False = mitmproxy (Python), True = mockttp (Node.js)
 KIRO_EXE_PATH = None  # Set to custom path or None to auto-detect
 ALLOW_TELEMETRY = False  # FALSE = block
 ALLOW_UPDATES = False  # FALSE = block
@@ -181,11 +182,14 @@ FORCE_TOGGLE_USAGE_LIMITS = None  # None=auto, True=always allow, False=always b
 DEBUG_MODE_ENABLED = False  # Show detailed output
 DEBUG_STORE_INTERACTION_BLOCKS = False  # Save requests/responses to files
 ALLOW_KIRO_MODELS = True  # TRUE = allow Kiro's default models
+
+# Signal to restart the proxy if config changes its type
+restart_proxy_event = threading.Event()
 # ============================================================
 
 # Setup directories
-SCRIPT_DIR = Path(__file__).parent  # Base directory (where kiropipe.py is)
-KIROPIPE_DIR = SCRIPT_DIR / "_kiropipe"  # Module directory
+SCRIPT_DIR = Path(__file__).parent  # This folder (_kiropipe-py_archived, where kiropipe.py is)
+KIROPIPE_DIR = SCRIPT_DIR  # Module directory, same folder since the archive move
 DEBUG_DIR       = KIROPIPE_DIR / "debug_logs" / "interactions"
 RESPONSES_DIR   = DEBUG_DIR / "responses"
 POSTED_DIR      = DEBUG_DIR / "posted"
@@ -199,6 +203,8 @@ INJECTION_QUEUE_FILE = KIROPIPE_DIR / "debug_logs" / ".injection_queue.json"
 
 # Add _kiropipe to Python path for module imports
 sys.path.insert(0, str(KIROPIPE_DIR))
+
+from version import __version__
 
 # Load configuration
 from engine.config_loader import load_config
@@ -237,6 +243,7 @@ def _reload_globals_from_config():
     """Re-apply config values to module-level globals after a reload."""
     global ALLOW_TELEMETRY, ALLOW_UPDATES, FORCE_TOGGLE_USAGE_LIMITS
     global DEBUG_MODE_ENABLED, DEBUG_STORE_INTERACTION_BLOCKS, ALLOW_KIRO_MODELS
+    global USE_NODE_PROXY
     if CONFIG:
         ALLOW_TELEMETRY             = CONFIG.get('kiro_endpoint.telemetry', ALLOW_TELEMETRY)
         ALLOW_UPDATES               = CONFIG.get('kiro_endpoint.updates', ALLOW_UPDATES)
@@ -244,6 +251,7 @@ def _reload_globals_from_config():
         DEBUG_MODE_ENABLED          = CONFIG.get('debug.debug_mode_enabled', DEBUG_MODE_ENABLED)
         DEBUG_STORE_INTERACTION_BLOCKS = CONFIG.get('debug.store_interaction_blocks', DEBUG_STORE_INTERACTION_BLOCKS)
         ALLOW_KIRO_MODELS           = CONFIG.get('kiro_endpoint.models', ALLOW_KIRO_MODELS)
+        USE_NODE_PROXY              = CONFIG.get('proxy.use_node', USE_NODE_PROXY)
 
 def _config_watcher():
     """Background thread: polls config file mtime and reloads on change."""
@@ -255,8 +263,14 @@ def _config_watcher():
                 with _config_lock:
                     new_cfg = load_config(_config_path)
                     if new_cfg:
+                        old_proxy_type = USE_NODE_PROXY
                         CONFIG = new_cfg
                         _reload_globals_from_config()
+                        
+                        if USE_NODE_PROXY != old_proxy_type:
+                            print(f"{Fore.MAGENTA}[Config] Proxy type changed — signaling restart...{Style.RESET_ALL}")
+                            restart_proxy_event.set()
+                        
                         # Mark all active interceptor instances to rebuild the model list.
                         # 'addons' is defined at module level after this thread starts,
                         # so we look it up in the module globals at call time.
@@ -1033,8 +1047,8 @@ class KiroInterceptor:
                         
                         # Initialize retry handler
                         retry_handler = RetryHandler(RetryConfig(
-                            max_retries=7,
-                            base_delay=0.5,
+                            max_retries=1,
+                            base_delay=5.0,
                             max_delay=30.0,
                             exponent_cap=4,
                             jitter_factor=0.25,
@@ -2002,6 +2016,52 @@ class KiroInterceptor:
 
 addons = [KiroInterceptor()]
 
+# Proxy runner functions
+def run_python_proxy(port):
+    """Run the Python MITMProxy (mitmdump)"""
+    import subprocess
+    import sys
+    from mitmproxy.tools.main import mitmdump
+    
+    print(f"{Fore.CYAN}[Proxy] Starting Python MITMProxy on port {port}{Style.RESET_ALL}")
+    
+    # Set up mitmdump arguments
+    if DEBUG_MODE_ENABLED:
+        sys.argv = ['mitmdump', '-s', __file__, '--listen-port', str(port)]
+    else:
+        sys.argv = ['mitmdump', '-s', __file__, '--listen-port', str(port), '-q']
+    
+    try:
+        mitmdump()
+    except KeyboardInterrupt:
+        print(f"\n{Fore.YELLOW}[Proxy] Python proxy interrupted{Style.RESET_ALL}")
+
+def run_node_proxy(port):
+    """Run the Node.js mockttp proxy"""
+    import subprocess
+    import sys
+    
+    proxy_script = NODE_PROXY_DIR / 'proxy.js'
+    if not proxy_script.exists():
+        print(f"{Fore.RED}[Proxy] ERROR: Node.js proxy script not found at {proxy_script}{Style.RESET_ALL}")
+        return None
+    
+    print(f"{Fore.CYAN}[Proxy] Starting Node.js mockttp proxy on port {port}{Style.RESET_ALL}")
+    
+    try:
+        # Start Node.js proxy as subprocess
+        process = subprocess.Popen(
+            ['node', str(proxy_script), str(port)],
+            cwd=str(NODE_PROXY_DIR),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        return process
+    except Exception as e:
+        print(f"{Fore.RED}[Proxy] ERROR: Failed to start Node.js proxy: {e}{Style.RESET_ALL}")
+        return None
+
 def find_kiro_exe():
     """Find Kiro.exe - check custom path, then auto-detect"""
     if KIRO_EXE_PATH:
@@ -2209,7 +2269,7 @@ if __name__ == "__main__":
         pass
 
     print(f"\n{Fore.CYAN}{'='*60}")
-    print(f"{Style.BRIGHT}KiroPipe - Unified Launcher{Style.RESET_ALL}")
+    print(f"{Style.BRIGHT}KiroPipe v{__version__} - Unified Launcher{Style.RESET_ALL}")
     print(f"{Fore.CYAN}{'='*60}{Style.RESET_ALL}")
     
     # Print configuration summary
@@ -2259,16 +2319,57 @@ if __name__ == "__main__":
     kiro_thread = threading.Thread(target=lambda: launch_kiro(port, None), daemon=False)
     kiro_thread.start()
     
-    # Run mitmproxy in main thread (this blocks until proxy stops)
+    # Main proxy loop - supports live switching between Python and Node.js proxies
+    proxy_process = None
     try:
-        # Add quiet flag if debug mode is disabled
-        if DEBUG_MODE_ENABLED:
-            sys.argv = ['mitmdump', '-s', __file__, '--listen-port', str(port)]
-        else:
-            sys.argv = ['mitmdump', '-s', __file__, '--listen-port', str(port), '-q']
-        mitmdump()
+        while True:
+            # Wait for restart signal or start initial proxy
+            restart_proxy_event.clear()
+            
+            if USE_NODE_PROXY:
+                # Start Node.js proxy
+                proxy_process = run_node_proxy(port)
+                if proxy_process is None:
+                    print(f"{Fore.RED}[Proxy] Failed to start Node.js proxy, falling back to Python{Style.RESET_ALL}")
+                    USE_NODE_PROXY = False
+                    proxy_process = run_python_proxy(port)
+            else:
+                # Start Python proxy (mitmdump runs in this thread)
+                print(f"{Fore.CYAN}[Proxy] Running Python MITMProxy (blocking call){Style.RESET_ALL}")
+                run_python_proxy(port)
+                # After mitmdump exits, we need to restart the loop
+                # But since mitmdump is blocking, we can't easily do that
+                # For now, we'll just exit if mitmdump stops
+                break
+            
+            # Wait for restart signal or proxy to exit
+            if proxy_process:
+                # Poll for restart signal
+                while not restart_proxy_event.is_set():
+                    if proxy_process.poll() is not None:
+                        # Process exited
+                        print(f"{Fore.YELLOW}[Proxy] Node.js proxy exited, restarting...{Style.RESET_ALL}")
+                        break
+                    time.sleep(0.5)
+                
+                # Kill the proxy process if restarting
+                if proxy_process.poll() is None:
+                    proxy_process.terminate()
+                    try:
+                        proxy_process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        proxy_process.kill()
+    
     except KeyboardInterrupt:
         print(f"\n\n{Fore.YELLOW}Shutting down...{Style.RESET_ALL}")
+    
+    # Cleanup
+    if proxy_process and proxy_process.poll() is None:
+        proxy_process.terminate()
+        try:
+            proxy_process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proxy_process.kill()
     
     print(f"{Fore.CYAN}Proxy stopped. Waiting for cleanup...{Style.RESET_ALL}")
     kiro_thread.join(timeout=5)

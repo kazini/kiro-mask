@@ -1,0 +1,81 @@
+{
+ "a": 1,
+ "b": -2.5,
+ "c": "dq # not comment \" é A",
+ "d": "sq 'quoted' # nope",
+ "e": "plain text",
+ "f": [
+  1,
+  "two",
+  "three",
+  [
+   4,
+   5
+  ],
+  {
+   "k": "v"
+  }
+ ],
+ "g": {
+  "x": 1,
+  "y": [
+   "a",
+   "b"
+  ],
+  "z": {
+   "n": null
+  }
+ },
+ "h": [
+  "one",
+  {
+   "three": 3,
+   "two": 2
+  },
+  {
+   "four": 4
+  },
+  [
+   "x",
+   "y"
+  ]
+ ],
+ "i": [
+  "no_indent_a",
+  "no_indent_b"
+ ],
+ "j": "line1\n  indented\nline3\n",
+ "k": "folded text here",
+ "l": null,
+ "m": true,
+ "n": false,
+ "o": "http://localhost:8317/v1",
+ "p": "quoted: colon",
+ "quoted key": 1,
+ "r": {
+  "nested": {
+   "deep": [
+    1,
+    2,
+    3
+   ]
+  }
+ },
+ "s": "long plain continued here",
+ "t": 31,
+ "u": "1e3",
+ "v": "",
+ "w": "it's",
+ "x": [
+  "a",
+  "b"
+ ],
+ "y": [
+  "a,b",
+  "c]d"
+ ],
+ "z": {
+  "a": "x: y",
+  "b": "z"
+ }
+}

@@ -1,0 +1,189 @@
+name: Package release
+run-name: "Package release ${{ inputs.tag || github.event.release.tag_name || github.sha }}"
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Optional: version tag to create or replace (e.g. v2.1). Leave blank to publish the version from kiromask.mjs.'
+        required: false
+        type: string
+      description:
+        description: "Optional: release description. Leave blank to reuse an overwritten release's description, or use the last commit message for a new release."
+        required: false
+        type: string
+
+permissions:
+  actions: write
+  contents: write
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      INPUT_TAG: ${{ inputs.tag }}
+      INPUT_DESCRIPTION: ${{ inputs.description }}
+      EVENT_TAG: ${{ github.event.release.tag_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine release tag
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${INPUT_TAG}" ]; then
+            TAG="${INPUT_TAG}"
+            version="${TAG#v}"
+          elif [ -n "${EVENT_TAG}" ]; then
+            TAG="${EVENT_TAG}"
+            version="${TAG#v}"
+          else
+            version="$(sed -n "s/.*version:[[:space:]]*'\([^']*\)'.*/\1/p" kiromask.mjs | sed -n '1p')"
+            if [ -z "${version}" ]; then
+              echo "::error::Could not read version from kiromask.mjs"
+              exit 1
+            fi
+            TAG="v${version}"
+          fi
+          echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          echo "Using release tag: ${TAG} (version ${version})"
+
+      - name: Replace GitHub release if it already exists
+        id: release
+        shell: bash
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          TARGET_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          old_notes=""
+          old_name=""
+          old_sha=""
+          old_target=""
+          existing_release=""
+          if existing_release="$(gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" --json name,body,targetCommitish 2>/dev/null)"; then
+            old_name="$(jq -r '.name // ""' <<< "${existing_release}")"
+            old_notes="$(jq -r '.body // ""' <<< "${existing_release}")"
+            old_target="$(jq -r '.targetCommitish // ""' <<< "${existing_release}")"
+            echo "Deleting existing release ${TAG} (label: ${old_name:-<none>})"
+            gh release delete "${TAG}" --yes --repo "${GITHUB_REPOSITORY}"
+          fi
+
+          # The tag decides whether a release exists; its existing label is the reference
+          # metadata we carry forward so replacing a version never renames its release.
+          release_title="${old_name:-${TAG}}"
+
+          # Prefer the old tag's commit; targetCommitish can be a branch name.
+          if [ -z "${old_sha}" ]; then
+            old_sha="$(git rev-parse -q --verify "refs/tags/${TAG}^{commit}" 2>/dev/null || true)"
+          fi
+          if [ -z "${old_sha}" ] && [ -n "${old_target}" ]; then
+            old_sha="$(git rev-parse -q --verify "${old_target}^{commit}" 2>/dev/null || true)"
+          fi
+
+          if gh api --silent "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}" >/dev/null 2>&1; then
+            echo "Deleting existing git tag ${TAG}"
+            gh api --silent -X DELETE "repos/${GITHUB_REPOSITORY}/git/refs/tags/${TAG}" >/dev/null
+          fi
+
+          # Drop a stale local tag so the next checkout picks up the recreated one.
+          git tag -d "${TAG}" >/dev/null 2>&1 || true
+
+          if [ -n "${INPUT_DESCRIPTION}" ]; then
+            notes="${INPUT_DESCRIPTION}"
+          elif [ -n "${old_notes}" ]; then
+            notes="${old_notes}"
+            echo "Reusing description from the previous ${TAG} release"
+          else
+            notes="$(git log -1 --pretty=%B "${TARGET_SHA}")"
+          fi
+
+          gh release create "${TAG}" \
+            --target "${TARGET_SHA}" \
+            --title "${release_title}" \
+            --notes "${notes:-Release ${TAG}}" \
+            --repo "${GITHUB_REPOSITORY}"
+          echo "Created release ${TAG} (label: ${release_title}) from ${TARGET_SHA}"
+          echo "old-target-sha=${old_sha}" >> "${GITHUB_OUTPUT}"
+
+          git fetch --force --tags origin
+
+      - name: Delete superseded release workflow runs
+        shell: bash
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          OLD_SHA: ${{ steps.release.outputs.old-target-sha }}
+        run: |
+          set -euo pipefail
+
+          runs="$(
+            gh api --paginate --silent \
+              "repos/${GITHUB_REPOSITORY}/actions/runs?per_page=100" \
+              --jq '.workflow_runs[] | select((.name // "") | startswith("Package release")) | [.id, .name, .head_sha] | @tsv' 2>/dev/null || true
+          )"
+
+          while IFS=$'\t' read -r run_id run_name run_sha; do
+            [ -n "${run_id}" ] || continue
+            [ "${run_id}" = "${GITHUB_RUN_ID}" ] && continue
+
+            if [ "${run_name}" = "Package release ${TAG}" ] || { [ -n "${OLD_SHA}" ] && [ "${run_sha}" = "${OLD_SHA}" ]; }; then
+              echo "Deleting superseded workflow run ${run_id}"
+              gh api --silent -X DELETE "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}" >/dev/null
+            fi
+          done <<< "${runs}"
+
+      - name: Check out release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.version.outputs.tag }}
+          fetch-depth: 0
+
+      - name: Build release zip
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          stage="${RUNNER_TEMP}/kiromask-release"
+          rm -rf "${stage}"
+          mkdir -p "${stage}/_kiromask-src"
+
+          cp -R _kiromask-src/. "${stage}/_kiromask-src/"
+          cp README.md "${stage}/KIROMASK_README.md"
+          cp kiromask.config.example.yaml "${stage}/kiromask.config.yaml"
+          cp run_kiromask.cmd "${stage}/run_kiromask.cmd"
+
+          # Keep the license with the launcher, as a commented-out block at the end.
+          cp kiromask.mjs "${stage}/kiromask.mjs"
+          license_label="$(sed -n '1{s/^#[[:space:]]*//;p;q;}' LICENSE | tr -d '\r')"
+          license_label="${license_label:-LICENSE}"
+          {
+            printf '\n// --- LICENSE (%s) ---\n' "${license_label}"
+            sed -e 's/\r$//' -e 's|^|// |' LICENSE
+            printf '// --- END LICENSE ---\n'
+          } >> "${stage}/kiromask.mjs"
+
+          safe_version="${VERSION//\//-}"
+          zip_name="kiromask_v${safe_version}_release.zip"
+          zip_path="${RUNNER_TEMP}/${zip_name}"
+          (cd "${stage}" && zip -q -r "${zip_path}" .)
+          echo "ZIP_PATH=${zip_path}" >> "${GITHUB_ENV}"
+          echo "ZIP_NAME=${zip_name}" >> "${GITHUB_ENV}"
+
+      - name: Upload zip to release
+        shell: bash
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh release upload "${TAG}" "${ZIP_PATH}" --repo "${GITHUB_REPOSITORY}" --clobber
+          echo "Attached ${ZIP_NAME} to release ${TAG}"

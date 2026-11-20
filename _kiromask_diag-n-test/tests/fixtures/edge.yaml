@@ -1,0 +1,47 @@
+# top comment
+a: 1
+b: -2.5
+c: "dq # not comment \" \u00e9 \x41"
+d: 'sq ''quoted'' # nope'
+e: plain text # real comment
+f: [1, "two", three, [4, 5], {k: v}]
+g: {x: 1, y: [a, b], z: {n: null}}
+h:
+  - one
+  - two: 2
+    three: 3
+  -
+    four: 4
+  - [x, y]
+i:
+- no_indent_a
+- no_indent_b
+j: |
+  line1
+    indented
+  line3
+
+k: >-
+  folded
+  text
+  here
+l: ~
+m: yes
+n: Off
+o: http://localhost:8317/v1
+p: "quoted: colon"
+r:
+  nested:
+    deep: [ 1,
+            2,
+            3 ]
+s: long plain
+   continued here
+t: 0x1F
+u: 1e3
+v: ""
+w: 'it''s'
+"quoted key": 1
+x: [a, b]   # trailing comment
+y: [ "a,b", 'c]d' ]
+z: {a: "x: y", b: 'z'}

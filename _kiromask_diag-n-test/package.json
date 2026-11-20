@@ -1,0 +1,9 @@
+{
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node run-tests.mjs",
+    "capture": "node capture.mjs",
+    "doctor": "node doctor.mjs"
+  }
+}

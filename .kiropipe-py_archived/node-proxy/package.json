@@ -1,0 +1,22 @@
+{
+  "name": "kiropipe-node-proxy",
+  "version": "1.1.2",
+  "description": "Node.js proxy for KiroPipe using mockttp",
+  "main": "proxy.js",
+  "scripts": {
+    "start": "node proxy.js",
+    "dev": "nodemon proxy.js"
+  },
+  "dependencies": {
+    "mockttp": "^3.11.0",
+    "yaml": "^2.3.4",
+    "http-proxy": "^1.18.1",
+    "express": "^4.18.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  },
+  "keywords": ["proxy", "kiro", "mitm", "network-interception"],
+  "author": "KiroPipe",
+  "license": "MIT"
+}

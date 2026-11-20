@@ -21,7 +21,8 @@ except ImportError:
 # ============================================================
 DEFAULT_CONFIG = {
     'proxy': {
-        'port': 29974
+        'port': 29974,
+        'use_node': False  # False = mitmproxy (Python), True = mockttp (Node.js)
     },
     'kiro': {
         'exe_path': None

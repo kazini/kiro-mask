@@ -1,7 +1,39 @@
+# config file
+kiromask.config.yaml
+kiromask.config.*.yaml
+!kiromask.config.example.yaml
+
+# Everything Kiro Mask writes at runtime lives in data/: the local CA (certificate + PRIVATE KEY),
+# log files, traffic captures (they contain your prompts and code), usage stats, model cache, report archives.
+data/
+
+# Belt and braces, in case a data folder is pointed somewhere inside the project (data_dir / --data-dir / $KIROMASK_HOME)
+**/ca/
+*.pem
+*.key
+*.crt
+*.cer
+*.p12
+*.pfx
+*.log
+captures/
+kiromask-report-*
+
+# Output of the standalone diagnostic tools (_kiromask_diag-n-test): results folders, .tar.gz archives and their own local CA
+_kiromask_diag-n-test/output/
+kiromask-capture-*/
+kiromask-doctor-*/
+*.tar.gz
+
+# Node / OS / editor
+node_modules/
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# other stuff
 **/.dev/
 **/__pycache__/
 **/debug_logs/
-_kiropipe/kiropipe_config.yaml
-**/kiropipe_config.yaml
 **/*.lnk
-*.cmd

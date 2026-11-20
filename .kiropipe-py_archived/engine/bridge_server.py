@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from engine.request_translator import translate_to_anthropic, translate_to_openai
 from engine.response_translator import translate_anthropic_stream, translate_openai_stream
 from engine.config_loader import load_config
+from version import __version__
 
 # ============================================================
 # CONFIGURATION
@@ -36,7 +37,7 @@ SESSION_STATS = {
 }
 # ============================================================
 
-app = FastAPI(title="Kiro API Bridge", version="1.0.0")
+app = FastAPI(title="Kiro API Bridge", version=__version__)
 
 
 def call_anthropic_api(request_body: Dict[str, Any], api_base: Optional[str] = None, api_key: Optional[str] = None) -> Any:

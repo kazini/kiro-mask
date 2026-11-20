@@ -1,0 +1,129 @@
+# Kiro Mask configuration. Changes apply live, except proxy.port.
+# ${NAME} reads an environment variable
+# =========================================
+
+# ── Runtime Configurations ──────────────
+debug:
+  verbose: false
+  log_file: true
+  log_keep: 5
+  capture_traffic: false
+
+kiro:
+  # tried first; if it does not exist, auto-detection takes over (shortcut to or real Kiro.exe/Kiro's folder inside or above the kiromask folder)
+  exe_path: "%LOCALAPPDATA%\\Programs\\Kiro\\Kiro.exe"
+  args: []                 # extra command-line flags for Kiro
+  env: {}                  # extra environment variables for Kiro
+
+launch:
+  exit_with_kiro: true
+  allow_running: false
+  companions: []           # helper processes started with the proxy, e.g.:
+  # - name: LocalEndpointAPI
+  #   command: C:\tools\local-api\local-endpoint-api.exe
+  #   args: []
+  #   cwd: C:\tools\local-api
+
+data_dir: null      # null = the data/ folder lives inside the kiromask folder (logs, captures, local CA, caches)
+
+
+# ── Communication between AWS and Kiro ──────────────
+kiro_endpoint:
+  telemetry: false
+  updates: false          # false = Kiro is told it is up to date
+  models: true        # show Kiro's own models next to custom ones
+  force_toggle_usage_limits: null       # null = auto (hidden while a custom model is active)
+  auth_fake_login: false        # use Kiro without an account (custom models only)
+  start_blocking: false
+  strict_whitelist: false       # swallow every AWS call that is not chat, models, mcp or auth
+  block_telemetry_always: false
+  strip_metering: false
+  block_other_when_custom: true     # after a custom model is used, swallow other AWS calls so nothing is metered
+
+proxy:
+  host: 127.0.0.1
+  port: 29974
+  intercept_hosts: ["*.amazonaws.com", "*.kiro.dev", "kiro.dev"]        # Only these hosts are TLS-intercepted. Everything else is tunnelled untouched.
+
+tls:
+  # permissive: --ignore-certificate-errors + NODE_TLS_REJECT_UNAUTHORIZED=0 (inside the launched Kiro only)
+  # pinned:     (experimental) accept only certificates issued by Kiro Mask's own CA
+  mode: permissive
+
+
+# ── How Kiro's interface interacts with LLMs and tools ──────────────
+session_title: local        # Kiro's "simple-task" request that names each new chat. local (made by kiromask, free) | passthrough (Kiro's servers answer, ~0.005 credit each) | current (the active model) | <model name>. Falls back to local on a bad answer.
+completions: null       # null (off while a custom model is active) | passthrough | current | <model name>
+web_search: default     # default (AWS search) | enforce (even with fake login / offline AWS) | disabled | <OR customise and/or run searches yourself>
+# web_search:
+#   description: "Search the web. Use for anything after your knowledge cutoff."
+#   execute:
+#     type: http                       # http | mcp_server | command
+#     url: http://localhost:8080/search   # receives POST {"query": "..."} → {"results": [...]}
+#     api_key: ${SEARCH_KEY}
+#   # type: command →  command: C:\bin\search.exe   args: ["--json"]   stdin: false
+
+model_list:
+  order: kiro-first     # kiro-first | custom-first
+  kiro_rate_unit: Kiro Credits      # renames the 'credits' unit for kiro models
+  default_model: null       # 'null' to keep the last used as selected
+
+prompt:
+  as_system_message: true       # send Kiro's system prompt as a real system message (recommended)
+  system_override_file: null        # replace Kiro's system prompt with this file's contents
+  # "default" = built-in stand-in for Kiro's server-side prompt, "" = none, or your own text
+  preamble: default
+  prepend: ""
+  append: ""
+
+
+# ── Providers ─────────────────────────────────────────────────────────────────
+default_model: kiro-default     # model used when Kiro asks for one that is not configured
+defaults:       # Defaults for every provider/model (each can be overridden)
+  enabled: true
+  type: openai
+  max_tokens: 16384           # output cap; auto-lowered if a provider rejects it (tries to get it from the model where info available)
+  context_window: 200000      # drives Kiro's context-usage meter (tries to get it from the model where info available)
+  retries: 2                  # for 429/5xx before any output has streamed
+  timeout_s: 300
+  reasoning: drop             # drop (hide <think> / reasoning) | keep (show in a fenced block)
+  tool_args: buffer           # buffer = validate & repair tool-call JSON | stream = forward live
+  errors: http                # chat = show provider errors in the conversation | http = AWS-style error
+
+providers:
+  kiro:     # registers kiro's own models as valid providers; best to set kiro_endpoint: {models} as false instead to disable
+    enabled: true
+    type: passthrough
+    models:
+      - {name: kiro-default, alias: [kiro, aws-q]}
+
+  anthropic:
+    enabled: false
+    type: anthropic
+    api_base: https://api.anthropic.com/v1
+    api_key: ${ANTHROPIC_API_KEY}
+    models:
+      - {name: claude-sonnet-4-5, display_name: Claude Sonnet 4.5 (direct), context_window: 200000, max_tokens: 32000}
+
+  openrouter:
+    enabled: true
+    type: openai
+    api_base: https://openrouter.ai/api/v1
+    api_key: ${OPENROUTER_API_KEY}
+    models:
+      - name: minimax/minimax-m2.5
+        display_name: MiniMax M2.5
+        description: Fast and cheap
+        context_window: 196000
+      - name: minimax/minimax-m3.1
+        display_name: MiniMax M3.1
+        description: Fast and good
+
+  local-gateway:
+    enabled: false
+    type: openai
+    api_base: http://localhost:8317/v1
+    api_key: ${GATEWAY_KEY}
+    models:
+      - {name: qwen-plus, display_name: Qwen Plus, context_window: 128000}
+      - {name: gemini-3-flash, display_name: Gemini 3 Flash, description: via LocalGateway, max_tokens: 4096}

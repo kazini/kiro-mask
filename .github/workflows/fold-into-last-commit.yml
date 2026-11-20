@@ -1,0 +1,113 @@
+name: Fold into Last Commit
+run-name: "Fold into Last Commit: ${{ inputs.source }}"
+
+on:
+  workflow_dispatch:
+    inputs:
+      source:
+        description: 'Commit SHA, branch, or tag whose changes should be squashed into the last commit.'
+        required: true
+        type: string
+      confirm:
+        description: 'Type "confirm" exactly to authorize rewriting and force-pushing the branch history.'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fold-into-last-commit-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  amend:
+    runs-on: ubuntu-latest
+    if: github.ref_type == 'branch'
+    env:
+      SOURCE: ${{ inputs.source }}
+      CONFIRM: ${{ inputs.confirm }}
+      BRANCH: ${{ github.ref_name }}
+    steps:
+      - name: Verify confirmation
+        shell: bash
+        run: |
+          if [ "${CONFIRM}" != "confirm" ]; then
+            echo "::error::Confirmation failed. Type 'confirm' exactly in the confirm input to proceed."
+            exit 1
+          fi
+          echo "Confirmation accepted."
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Squash source into last commit
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          old_head="$(git rev-parse HEAD)"
+          git fetch --prune --tags origin
+
+          source_ref="${SOURCE}"
+          source_sha=""
+
+          if git show-ref --verify --quiet "refs/remotes/origin/${source_ref}"; then
+            source_sha="$(git rev-parse "refs/remotes/origin/${source_ref}^{commit}")"
+          elif git show-ref --verify --quiet "refs/tags/${source_ref}"; then
+            source_sha="$(git rev-parse "refs/tags/${source_ref}^{commit}")"
+          else
+            source_sha="$(git rev-parse --verify "${source_ref}^{commit}" 2>/dev/null || true)"
+          fi
+
+          if [ -z "${source_sha}" ]; then
+            echo "::error::Could not resolve source '${source_ref}'"
+            exit 1
+          fi
+
+          if [ "${source_sha}" = "${old_head}" ]; then
+            echo "::error::Source resolves to the current last commit; nothing to merge"
+            exit 1
+          fi
+
+          if git merge-base --is-ancestor "${source_sha}" "${old_head}"; then
+            echo "::error::Source '${source_ref}' is already contained in the last commit's history"
+            exit 1
+          fi
+
+          if git show-ref --verify --quiet "refs/remotes/origin/${source_ref}"; then
+            start_sha="$(git merge-base "${old_head}" "${source_sha}")"
+            echo "Squashing branch ${source_ref} (${start_sha}..${source_sha}) into ${old_head}"
+          else
+            if git cat-file -e "${source_sha}^" 2>/dev/null; then
+              start_sha="${source_sha}^"
+            else
+              start_sha="$(git hash-object -t tree /dev/null)"
+            fi
+            echo "Squashing commit ${source_sha} into ${old_head}"
+          fi
+
+          if ! git diff --binary "${start_sha}" "${source_sha}" | git apply --index --3way; then
+            echo "::error::Conflicts while applying '${source_ref}' onto the last commit"
+            exit 1
+          fi
+
+          if [ -n "$(git ls-files -u)" ]; then
+            echo "::error::Unmerged files after applying '${source_ref}'"
+            git status --short
+            exit 1
+          fi
+
+          if git diff --cached --quiet; then
+            echo "No changes to merge from '${source_ref}'"
+            exit 0
+          fi
+
+          git commit --amend --no-edit
+          new_head="$(git rev-parse HEAD)"
+          echo "Amended ${old_head} into ${new_head}"
+
+          git push --force-with-lease="refs/heads/${BRANCH}:${old_head}" origin "HEAD:refs/heads/${BRANCH}"
+          echo "Pushed ${new_head} to ${BRANCH}"

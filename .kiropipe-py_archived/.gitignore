@@ -1,0 +1,6 @@
+**/.dev/
+**/__pycache__/
+**/debug_logs/
+**/kiropipe_config.yaml
+**/*.lnk
+*.cmd
