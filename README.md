@@ -1,18 +1,14 @@
 # Kiro Mask
-
+> [!NOTE]
+> <sub>This project was developed with Agentic LLM assistance. Its planning, specifications, criteria, and systems-design were directed, in detail, by a human developer. Most of the code was written by an LLM and has not been fully reviewed by a human developer, despite passing test validations; it is *not* up to production standards. You have been warned!</sub>
+___
 Lets Kiro IDE use custom model endpoints. It starts Kiro through a local MITM proxy that makes itself look like AWS, and translates the protocol to OpenAI or Anthropic formats.
 
 ### <sub>**Always open to contributions and suggestions!**</sub>
 ___
 
-> [!NOTE]
-> This project was developed with Agentic LLM assistance. Its planning, specifications, criteria, and systems-design were directed, in detail, by a human developer.
-> 
-> Most of the code's structure was written by an LLM and, despite being functional and performant as evaluated by automated testing, has not yet been fully reviewed by a human developer, and may not be up to production standards. You have been warned!
-___
-
 #### Running KiroMask:
-On Windows, use `run_kiromask.cmd`; untested on Linux. Before running, you have to configure `kiromask.config.yaml` and either set the exe path location or, for autodetection, place a shortcut for the Kiro folder or .exe in the kiromask directory, copy the kiromask directory into or drop its contents on the main Kiro folder. 
+On Windows, use `run_kiromask.cmd`; untested on Linux, but should work. Before running, you have to configure `kiromask.config.yaml` and either set the exe path location or, for autodetection, place a shortcut for the Kiro folder or .exe in the kiromask directory, copy the kiromask directory into or drop its contents on the main Kiro folder. 
 
 Needs Node 18.18 or newer. Use `node kiromask.mjs` to run directly. Use `node kiromask.mjs init` to auto-generate a config file from the example. Kiro IDE will open automatically.
 
@@ -20,11 +16,11 @@ Needs Node 18.18 or newer. Use `node kiromask.mjs` to run directly. Use `node ki
 
 ___
 ### <sub>Other Directories:</sub>
-> <sub>`_kiromask_diag-n-test` is a development folder for tools used to capture Kiro's traffic and diagnose problems, the tests for kiromask, and notes on the protocol.</sub>
+> `_kiromask_diag-n-test` is a development folder for tools used to capture Kiro's traffic and diagnose problems, the tests for kiromask, and notes on the protocol.
 
-> <sub>`.kiropipe-py_archived` is the old python version, deprecated. Some people might prefer python or use it as a reference, so it is archived here. Feel free to contribute if interested, we'll scrape off the 'archive' name.</sub>
+> `.kiropipe-py_archived` is the old python version, deprecated. Some people might prefer python or use it as a reference, so it is archived here. Feel free to contribute if interested, we'll scrape off the 'archive' name.
 
-> <sub>`_kiromask-src/_legal` holds the [legal position](./_kiromask-src/_legal/LEGAL_POSITION.md) on running Kiro Mask alongside Kiro IDE, with a dated copy of the terms at the time. A just-in-case statement for peace of (my) mind.</sub>
+> `_kiromask-src/_legal` holds the [legal position](./_kiromask-src/_legal/LEGAL_POSITION.md) on running Kiro Mask alongside Kiro IDE, with a dated copy of the terms at the time. A just-in-case statement for peace of (my) mind.
 ___
 
 #### To-Do List:
